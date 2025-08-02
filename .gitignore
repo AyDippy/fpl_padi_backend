@@ -37,3 +37,15 @@ coverage/
 *.local
 
 .venv/
+
+logs/
+
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.coverage
+.pytest_cache/
