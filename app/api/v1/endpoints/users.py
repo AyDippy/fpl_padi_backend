@@ -10,6 +10,7 @@ from app.models.user import User
 from fastapi.security import OAuth2PasswordBearer
 from app.core.security import decode_access_token
 from typing import Annotated
+from app.utils.send_email import send_notification_email
 
 # router 
 router = APIRouter(prefix="/user", tags=["users"])
@@ -42,6 +43,21 @@ async def signup(db: db_session, user: CreateUser):
     else:
         new_user = await create_user(db, user)
         logger.info(f"User: {username} signup completed")
+
+        #send welcome email to user after sign up is successful
+        try:
+            await send_notification_email(
+                email_to=new_user.email,
+                subject="FPL Padi sign up successful",
+                body={
+                    "title": "Welcome to FPL Padi App",
+                    "name": new_user.username
+                }
+            )
+            logger.info(f"Welcome email delivered successfully to {new_user.email}")
+        except Exception as e:
+             logger.warning(f"Failed to send welcome email to {new_user.email}: {str(e)}")
+        
         return new_user
         
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: db_session):

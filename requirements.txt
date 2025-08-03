@@ -11,3 +11,4 @@ asyncpg
 python-multipart
 pyjwt
 passlib[bcrypt]
+fastapi-mail
