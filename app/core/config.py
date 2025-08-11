@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     MAIL_SERVER: str
     MAIL_FROM_NAME: str
     TEMPLATE_FOLDER: str
+    DB_HOST: str
+    DB_NAME: str
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_PORT: str
 
     class Config:
         env_file = ".env"
