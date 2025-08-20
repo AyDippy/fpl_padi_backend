@@ -15,3 +15,7 @@ fastapi-mail
 pandas
 schedule
 psycopg2
+langchain-postgres
+langgraph-checkpoint-postgres
+psycopg-binary
+beautifulsoup4

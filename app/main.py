@@ -3,6 +3,7 @@ from app.db.session import Base, engine
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.logging import logger
 from app.models.user import User
+from app.models.chat import ChatMessage
 from app.api.v1 import api_routers
 
 

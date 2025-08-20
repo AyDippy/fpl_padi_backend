@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     DB_USER: str
     DB_PASSWORD: str
     DB_PORT: str
+    DB_URI: str
 
     class Config:
         env_file = ".env"
