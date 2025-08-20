@@ -1,6 +1,6 @@
 from app.core.logging import logger
 from app.db.session import db_session
-from app.crud.chat import create_chat
+from app.crud.chat import create_chat, get_session_history, get_user_sessions, delete_chat_session
 from app.schemas.chat import ChatRequest, ChatResponse
 from fastapi import Depends, APIRouter, Path, HTTPException
 from app.api.v1.endpoints.users import get_current_user
@@ -97,3 +97,71 @@ async def continue_chat(
             status_code=500, 
             detail="Failed to continue chat. Please try again."
         )
+
+@router.get('/history/{session_id}')
+async def user_session_history(
+    db: db_session, 
+    session_id: Annotated[str, Path(description="Session ID to get history for")],
+    user: Annotated[UserResponse, Depends(get_current_user)]
+):
+    try:
+        user_id = str(user.id)
+        logger.info(f"Getting history - User: {user_id}, Session: {session_id[:8]}...")
+        
+        # Validate session_id format
+        try:
+            uuid.UUID(session_id)
+        except ValueError:
+            logger.warning(f"Invalid session_id format from user {user_id}: {session_id}")
+            raise HTTPException(status_code=400, detail="Invalid session_id format")
+        
+        messages = await get_session_history(db, session_id)
+        return messages
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting history: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get chat history")
+
+@router.get('/sessions')
+async def user_entire_sessions(
+    db: db_session, 
+    user: Annotated[UserResponse, Depends(get_current_user)]
+):
+    try:
+        user_id = str(user.id)
+        logger.info(f"Getting sessions - User: {user_id}")
+        
+        sessions = await get_user_sessions(db, user_id) 
+        return sessions 
+        
+    except Exception as e:
+        logger.error(f"Error getting sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to get user sessions")
+
+@router.delete("/{session_id}")  
+async def delete_user_chat_session(
+    db: db_session, 
+    session_id: Annotated[str, Path(description="Session ID to delete")],
+    user: Annotated[UserResponse, Depends(get_current_user)]
+):
+    try:
+        user_id = str(user.id)
+        logger.info(f"Deleting session - User: {user_id}, Session: {session_id[:8]}...")
+        
+        # Validate session_id format
+        try:
+            uuid.UUID(session_id)
+        except ValueError:
+            logger.warning(f"Invalid session_id format from user {user_id}: {session_id}")
+            raise HTTPException(status_code=400, detail="Invalid session_id format")
+        
+        deleted_session = await delete_chat_session(db, session_id, user_id)  
+        return deleted_session
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting session: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete session")

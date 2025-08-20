@@ -14,12 +14,12 @@ class ChatMessage(Base):
     role = Column(String, nullable=False)  # 'user' or 'assistant'
     timestamp = Column(DateTime, default=datetime.utcnow)
 
-# class ChatSession(Base):
-#     __tablename__ = "chat_sessions"
+class ChatSession(Base):
+    __tablename__ = "chat_sessions"
     
-#     id = Column(Integer, primary_key=True, index=True)
-#     thread_id = Column(String, unique=True, index=True)
-#     user_id = Column(String, nullable=True, index=True)
-#     created_at = Column(DateTime, default=datetime.utcnow)
-#     updated_at = Column(DateTime, default=datetime.utcnow)
-#     message_count = Column(Integer, default=0)
+    id = Column(Integer, primary_key=True, index=True)
+    thread_id = Column(String, unique=True, index=True)
+    user_id = Column(String, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    message_count = Column(Integer, default=0)
