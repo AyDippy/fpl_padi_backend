@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
 import uuid
 from sqlalchemy import select
-from app.agent.fpl_agent import graph
+from app.agent.fpl_agent import get_agent
 from langchain_core.messages import HumanMessage
 
 async def create_chat(db: AsyncSession, message: str, thread_id: str, user_id: str):
@@ -47,9 +47,12 @@ async def create_chat(db: AsyncSession, message: str, thread_id: str, user_id: s
         
         config = {"configurable": {"thread_id": thread_id}}
         input_state = {"messages": [HumanMessage(content=user_message)]}
+
+        #fpl padi agent
+        agent = await get_agent()
         
         # Invoke the agent
-        response_state = graph.invoke(input_state, config=config)
+        response_state = await agent.ainvoke(input_state, config=config)
         agent_response = response_state["messages"][-1].content
 
         logger.info(f"Agent response received - Thread: {thread_id[:8]}..., Response length: {len(agent_response)}")

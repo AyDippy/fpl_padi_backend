@@ -1,65 +1,81 @@
+from langchain_tavily import TavilySearch
 from langchain_community.document_loaders import WebBaseLoader
-from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from app.core.config import settings
 from app.core.logging import logger
 import os
-
+from datetime import datetime, timedelta
 
 os.environ["OPENAI_API_KEY"] = settings.OPENAI_API_KEY
-
+os.environ["TAVILY_API_KEY"] = settings.TAVILY_API_KEY
 
 @tool
-def retrieve_scout_selection_advice(user_input: str) -> dict:
+def retrieve_scout_selection_advice(user_input: str) -> str:
     """
-    Get FPL scout selection advice from Premier League official website.
+    Get real-time FPL scout selection content using Tavily search.
+    Returns raw content for the agent to process.
+    
     Examples:
-    - "What are the best picks for gameweek 1?"
-    - "Show me scout recommendations"
-    - "Best players to pick according to scouts"
+    - "What are the best picks for gameweek 5?"
+    - "Show me latest scout recommendations"
+    - "Best differential picks this week"
+    - "Scout captain picks"
 
     Args:
         user_input: Query about FPL scout recommendations
 
     Returns:
-        dict with scout advice and recommendations
+        str: Raw content from FPL sources for agent processing
     """
     
     try:
-        logger.info(f"Scout Query: {user_input}")
+        logger.info(f"Tavily Scout Query: {user_input}")
+
+        current_season = settings.CURRENT_FPL_SEASON
+        current_gameweek = settings.CURRENT_GAMEWEEK
         
-        # Load scout content from Premier League
-        loader = WebBaseLoader("https://www.premierleague.com/en/news/4373986/scout-selection-the-best-fpl-squad-for-the-opening-gameweeks")
-        docs = loader.load()
-        
-        # Initialize LLM
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            max_tokens=None,
-            timeout=None,
-            max_retries=2
+        search_tool = TavilySearch(
+            topic="general",
+            max_results=2,
+            include_answers=True,
+            include_domains=[
+                "https://www.premierleague.com/en/news"
+            ],
+            start_date=(datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         )
         
-        # Create query with scout content
-        query = f"{user_input}. Based on this scout content: {docs[0].page_content}"
+        # Enhanced query
+        enhanced_query = f"FPL fantasy premier league scout picks recommendations {current_season} season gameweek {current_gameweek} {user_input}"
         
-        # Get response
-        response = llm.invoke(query)
+        # Perform search
+        search_results = search_tool.invoke({"query": enhanced_query})
         
-        logger.info("Scout advice retrieved successfully")
+        if not search_results.get('results'):
+            logger.warning("No search results found")
+            return "No recent scout recommendations found. Please try a different query."
         
-        return {
-            'advice': response.content,
-            'status': 'success',
-            'source': 'Premier League Scout Selection'
-        }
+        # Extract URLs and load content
+        urls = [result['url'] for result in search_results['results']]
+        logger.info(f"Found {len(urls)} relevant sources")
+        
+        loader = WebBaseLoader(urls)
+        docs = loader.load()
+        
+        # Process and combine content
+        processed_content = f"=== LATEST FPL SCOUT RECOMMENDATIONS ({current_season} Season, Gameweek {current_gameweek}) ===\n\n"
+        
+        for i, doc in enumerate(docs, 1):
+            # Clean content
+            clean_content = doc.page_content.replace("\n", " ").strip()
+            source_url = doc.metadata.get('source', f'Source {i}')
+            
+            processed_content += f"--- Source {i}: {source_url} ---\n"
+            processed_content += f"{clean_content}\n\n"
+        
+        logger.info("Tavily scout content retrieved successfully")
+        
+        return processed_content
         
     except Exception as e:
-        logger.error(f"Error in scout tool: {str(e)}")
-        
-        return {
-            'advice': f"Error getting scout advice: {str(e)}",
-            'status': 'error',
-            'error': str(e)
-        }
+        logger.error(f"Error in Tavily scout tool: {str(e)}")
+        return f"Error retrieving scout recommendations: {str(e)}"

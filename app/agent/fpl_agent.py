@@ -4,8 +4,9 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
-from langgraph.checkpoint.postgres import PostgresSaver 
-from psycopg import Connection
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg_pool import AsyncConnectionPool
+from psycopg.rows import dict_row
 from typing import Annotated, TypedDict
 from app.agent.tools.db_retriever import retrieve_player_team_data
 from app.agent.tools.scout_picks import retrieve_scout_selection_advice
@@ -22,15 +23,6 @@ os.environ["OPENAI_API_KEY"] = settings.OPENAI_API_KEY
 
 DB_URI = settings.DB_URI
 
-connection_kwargs = {
-    "autocommit": True,
-    "prepare_threshold": 0,
-}
-
-conn = Connection.connect(DB_URI, **connection_kwargs)
-checkpointer = PostgresSaver(conn)
-checkpointer.setup()
-
 llm = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0,
@@ -39,11 +31,12 @@ llm = ChatOpenAI(
     max_retries=2
 )
 
-# app/agent/fpl_agent.py
-# app/agent/fpl_agent.py
+#agent prompt
 prompt = ChatPromptTemplate.from_messages([
-("system", """
-You are an FPL (Fantasy Premier League) chatbot assistant. It's currently gameweek 1, and you have tools to retrieve FPL data and scout recommendations.
+("system", f"""
+You are an FPL (Fantasy Premier League) chatbot assistant. It's currently the {settings.CURRENT_FPL_SEASON} season, gameweek {settings.CURRENT_GAMEWEEK}.
+
+IMPORTANT: Always use the most current data for the {settings.CURRENT_FPL_SEASON} season. Do not reference or use data from previous seasons (e.g., 2024/2025 or earlier). All recommendations, player stats, and advice must be based on the current {settings.CURRENT_FPL_SEASON} season data only.
 
 IMPORTANT FPL RULES YOU MUST FOLLOW:
 1. **Budget**: Maximum £100.0 million to spend (can spend less, but not more)
@@ -82,8 +75,8 @@ Team Structure Format:
 **REMAINING BUDGET**: £(100.0 - Y.Y)m
 
 Available Tools:
-- retrieve_player_team_data: Query database for player stats, costs, fixtures
-- retrieve_scout_selection_advice: Get expert FPL recommendations for squad selection
+- retrieve_player_team_data: Query database for current {settings.CURRENT_FPL_SEASON} season player stats, costs, fixtures
+- retrieve_scout_selection_advice: Get expert FPL recommendations for the current {settings.CURRENT_FPL_SEASON} season squad selection
 
 MANDATORY VALIDATION: Before providing any team suggestion, verify:
 1. Starting XI has EXACTLY 11 players
@@ -94,7 +87,7 @@ MANDATORY VALIDATION: Before providing any team suggestion, verify:
 
 I need you to pay attention to the user query. If it has nothing to do with FPL, just answer politely and introduce yourself if needed.
 
-Current Date: {current_time}
+Current Date: {{current_time}}
 """),
 MessagesPlaceholder(variable_name="query")
 ])
@@ -108,11 +101,12 @@ llm_with_tools = llm.bind_tools(tools=tools)
 
 chain = prompt | llm_with_tools
 
-def chatbot(state: MessagesState):
+# fpl chatbot node
+async def chatbot(state: MessagesState):
     user_query = state["messages"]
     current_time = datetime.datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
 
-    response = chain.invoke({"query":user_query, "current_time": current_time})
+    response = await chain.ainvoke({"query":user_query, "current_time": current_time})
 
     return {"messages": [response]}
 
@@ -126,8 +120,79 @@ workflow.add_conditional_edges("chatbot", tools_condition)
 workflow.add_edge("tools", "chatbot")
 workflow.add_edge("chatbot", END)
 
+#Async Postgres Checkpointer setup
+db_initialised = False
+checkpointer = None
+compiled_agent = None  
 
-graph = workflow.compile(checkpointer=checkpointer)
+#checkpointer initialization
+async def init_checkpointer():
+    """Initialize database connection and checkpointer"""
+    global db_initialised, checkpointer
+    
+    if db_initialised:
+        return checkpointer
+    
+    try:
+        connection_kwargs = {
+            "autocommit": True,
+            "prepare_threshold": 0,
+            "row_factory": dict_row
+        }
+        
+        conn = AsyncConnectionPool(
+            conninfo=settings.DB_URI,
+            max_size=20,
+            kwargs=connection_kwargs,
+            open=False
+        )
+        await conn.open()
+        logger.info("Database connection pool established.")
+        
+        checkpointer = AsyncPostgresSaver(conn=conn)
+        await checkpointer.setup()
+        
+        db_initialised = True
+        logger.info("Checkpointer setup completed.")
+        
+        return checkpointer
+        
+    except Exception as e:
+        logger.error(f"Error setting up checkpointer: {e}")
+        raise e
+
+## Agent Initialization
+async def get_agent():
+    """Get the compiled agent (initializes once)"""
+    global compiled_agent
+    
+    if compiled_agent is not None:
+        return compiled_agent
+    
+    # Initialize checkpointer first
+    checkpointer = await init_checkpointer()
+    
+    # Compile graph once
+    compiled_agent = workflow.compile(checkpointer=checkpointer)
+    logger.info("Agent compiled and ready.")
+    
+    return compiled_agent
+
+## Cleanup after shutting system down
+async def cleanup():
+    """Cleanup database connections on shutdown"""
+    global db_initialised, checkpointer, compiled_agent
+    
+    try:
+        if checkpointer and hasattr(checkpointer, 'conn'):
+            await checkpointer.conn.close()
+            logger.info("Database connection pool closed.")
+    except Exception as e:
+        logger.error(f"Error during cleanup: {e}")
+    finally:
+        db_initialised = False
+        checkpointer = None
+        compiled_agent = None
 
 
 
