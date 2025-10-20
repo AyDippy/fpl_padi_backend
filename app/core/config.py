@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     REDIS_CACHE_TTL: int = 300  # 5 minutes default cache time
     REDIS_SCOUT_CACHE_TTL: int = 3600  # 1 hour for scout picks
     DB_URI_FPL: str
+    RESEND_API_KEY: str
 
     class Config:
         env_file = ".env"

@@ -1,40 +1,46 @@
-from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
-from app.core.config import settings
+import resend
+from pathlib import Path
+from jinja2 import Environment, FileSystemLoader
 from pydantic import EmailStr
+from app.core.config import settings
 
-#Email config requirements
-MAIL_USERNAME=settings.MAIL_USERNAME
-MAIL_PASSWORD=settings.MAIL_PASSWORD
-MAIL_FROM=settings.MAIL_FROM
-MAIL_PORT=settings.MAIL_PORT
-MAIL_SERVER=settings.MAIL_SERVER
-MAIL_FROM_NAME=settings.MAIL_FROM_NAME
-TEMPLATE_FOLDER=settings.TEMPLATE_FOLDER
+# Initialize Resend with your API key
+resend.api_key = settings.RESEND_API_KEY
 
-conf = ConnectionConfig(
-    MAIL_PASSWORD=MAIL_PASSWORD,
-    MAIL_USERNAME=MAIL_USERNAME,
-    MAIL_SERVER=MAIL_SERVER,
-    MAIL_FROM=MAIL_FROM,
-    MAIL_PORT=MAIL_PORT,
-    MAIL_FROM_NAME=MAIL_FROM_NAME,
-    MAIL_STARTTLS=False,
-    MAIL_SSL_TLS=True,
-    MAIL_DEBUG=0,
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True,
-    SUPPRESS_SEND=0,
-    TEMPLATE_FOLDER=TEMPLATE_FOLDER
-)
+# Template folder path
+TEMPLATE_FOLDER = Path(settings.TEMPLATE_FOLDER)
+
+# Initialize Jinja2 environment for template rendering
+template_env = Environment(loader=FileSystemLoader(str(TEMPLATE_FOLDER)))
 
 
-async def send_notification_email(email_to: EmailStr, subject:str, body:dict):
-    fm = FastMail(conf)
-    message = MessageSchema(
-        recipients= [email_to],
-        subject= subject,
-        template_body=body,
-        subtype="html"
-    )
-
-    await fm.send_message(message=message, template_name="email.html")
+async def send_notification_email(email_to: EmailStr, subject: str, body: dict):
+    """
+    Send email using Resend API with HTML template
+    
+    Args:
+        email_to: Recipient email address
+        subject: Email subject line
+        body: Dictionary containing template variables (e.g., {"title": "...", "name": "..."})
+    """
+    try:
+        # Load and render the HTML template
+        template = template_env.get_template("email.html")
+        html_content = template.render(**body)
+        
+        # Prepare email parameters
+        params = {
+            "from": f"{settings.MAIL_FROM_NAME} <noreply@fplpadi.site>",
+            "to": [email_to],
+            "subject": subject,
+            "html": html_content,
+        }
+        
+        # Send email via Resend
+        email = resend.Emails.send(params)
+        
+        return email
+        
+    except Exception as e:
+        # Re-raise the exception so it can be caught in the endpoint
+        raise Exception(f"Failed to send email: {str(e)}")
