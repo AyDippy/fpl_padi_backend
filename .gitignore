@@ -55,3 +55,10 @@ app/data/
 
 #frontend
 frontend/
+
+research/
+
+# Alembic
+alembic/versions/*.pyc
+alembic/__pycache__/
+

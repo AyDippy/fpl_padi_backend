@@ -25,15 +25,14 @@ class Settings(BaseSettings):
     DB_URI: str
     TAVILY_API_KEY: str
     CURRENT_FPL_SEASON: str = "2025/2026"  
-    CURRENT_GAMEWEEK: int = 7
+    CURRENT_GAMEWEEK: int = 9
     LANGCHAIN_TRACING_V2: str = "true"
     LANGCHAIN_API_KEY: str
     LANGCHAIN_PROJECT: str = "fpl_padi"
     REDIS_URL: str
-    REDIS_CACHE_TTL: int = 300  # 5 minutes default cache time
-    REDIS_SCOUT_CACHE_TTL: int = 3600  # 1 hour for scout picks
-    DB_URI_FPL: str
+    REDIS_SCOUT_CACHE_TTL: int = 604800  # 1 hour for scout picks
     RESEND_API_KEY: str
+    DB_URI_FPL: str
 
     class Config:
         env_file = ".env"
