@@ -103,7 +103,7 @@ class FPLNewsRetriever:
             formatted += f"Tags: {', '.join(article.get('tags', []))}\n\n"
             
             # Use summary for brevity, full content if summary unavailable
-            content = article.get('summary') or article.get('content', '')[:500]
+            content = article.get('content', '')
             formatted += f"{content}\n\n"
             formatted += "-" * 80 + "\n\n"
         

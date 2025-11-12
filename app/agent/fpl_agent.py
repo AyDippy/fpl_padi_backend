@@ -3,11 +3,11 @@ from langgraph.graph.message import add_messages, AnyMessage
 from langgraph.prebuilt import ToolNode, tools_condition
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg_pool import AsyncConnectionPool
 from psycopg.rows import dict_row
-from typing import Annotated, TypedDict
+from typing import Annotated, TypedDict, List
 from app.agent.tools.db_retriever import retrieve_player_team_data
 from app.agent.tools.scout_picks import retrieve_scout_selection_advice
 from app.core.config import settings
@@ -117,12 +117,76 @@ llm_with_tools = llm.bind_tools(tools=tools)
 
 chain = prompt | llm_with_tools
 
-# fpl chatbot node
+
+def redact_old_tool_content(state: MessagesState) -> List[AnyMessage]:
+    """
+    Redacts content from old tool messages to save tokens.
+    Only keeps the most recent tool interaction intact.
+    
+    Strategy:
+    1. Identify the most recent AIMessage with tool_calls
+    2. Keep all ToolMessages that come after that AIMessage (current interaction)
+    3. Redact all ToolMessages before that point (old interactions)
+    
+    Args:
+        state: Current conversation state with messages
+        
+    Returns:
+        List of messages with old tool content redacted
+    """
+    messages = state.get("messages", [])
+    
+    if not messages:
+        return []
+    
+    # Find the index of the LAST AIMessage that has tool_calls
+    # This marks the start of the current tool interaction
+    last_tool_calling_ai_idx = -1
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], AIMessage) and messages[i].tool_calls:
+            last_tool_calling_ai_idx = i
+            break
+    
+    # If no tool-calling AI message found, don't redact anything
+    if last_tool_calling_ai_idx == -1:
+        return messages
+    
+    # Build the filtered message list
+    filtered_messages: List[AnyMessage] = []
+    redacted_count = 0
+    
+    for i, msg in enumerate(messages):
+        if isinstance(msg, ToolMessage) and i < last_tool_calling_ai_idx:
+            # This is an OLD tool message - redact its content
+            filtered_messages.append(
+                ToolMessage(
+                    content="[Previous tool result - redacted]",
+                    tool_call_id=msg.tool_call_id,
+                )
+            )
+            redacted_count += 1
+        else:
+            # Keep all other messages as-is
+            filtered_messages.append(msg)
+    
+    if redacted_count > 0:
+        logger.info(f"Redacted {redacted_count} old tool messages")
+    
+    return filtered_messages
+
+# fpl chatbot node with tool message filtering
 async def chatbot(state: MessagesState):
-    user_query = state["messages"]
+    """
+    Main chatbot node that processes user queries.
+    Now includes tool message redaction to manage token usage.
+    """
+    # Filter out old tool message content BEFORE passing to LLM
+    filtered_messages = redact_old_tool_content(state)
+    
     current_time = datetime.datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
 
-    response = await chain.ainvoke({"query":user_query, "current_time": current_time})
+    # Use filtered messages instead of raw state messages
+    response = await chain.ainvoke({"query": filtered_messages, "current_time": current_time})
 
     return {"messages": [response]}
 
@@ -209,6 +273,3 @@ async def cleanup():
         db_initialised = False
         checkpointer = None
         compiled_agent = None
-
-
-
