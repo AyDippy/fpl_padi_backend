@@ -6,8 +6,10 @@ import uuid
 from sqlalchemy import select
 from app.agent.fpl_agent import get_agent
 from langchain_core.messages import HumanMessage
+from app.agent.tools.squad_vision import extract_squad_data
+import json
 
-async def create_chat(db: AsyncSession, message: str, thread_id: str, user_id: str):
+async def create_chat(db: AsyncSession, message: str, thread_id: str, user_id: str, image_data: str = None):
     """
     Create a new chat conversation by storing user message and getting agent response
     
@@ -46,7 +48,21 @@ async def create_chat(db: AsyncSession, message: str, thread_id: str, user_id: s
         logger.info(f"Invoking FPL agent for thread {thread_id[:8]}...")
         
         config = {"configurable": {"thread_id": thread_id}}
-        input_state = {"messages": [HumanMessage(content=user_message)]}
+        
+        # Prepare input state with optional image
+        if image_data:
+            logger.info("Processing image with Gemini Vision...")
+            
+            # Call the new extraction function
+            extraction_result = await extract_squad_data(image_data)
+            
+            # Add the structured data to the user message
+            user_message += f"\n\n[SYSTEM: The user uploaded an image. I have extracted the following squad data: {json.dumps(extraction_result)}]"
+            
+            input_state = {"messages": [HumanMessage(content=user_message)]}
+            logger.info(f"Attached extracted data to input for thread {thread_id[:8]}...")
+        else:
+            input_state = {"messages": [HumanMessage(content=user_message)]}
 
         #fpl padi agent
         agent = await get_agent()

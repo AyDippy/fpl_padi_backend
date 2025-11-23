@@ -115,3 +115,4 @@ alembic
 playwright==1.49.0 
 python-dateutil
 APScheduler==3.10.4
+google-genai

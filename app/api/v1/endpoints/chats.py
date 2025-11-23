@@ -6,7 +6,9 @@ from fastapi import Depends, APIRouter, Path, HTTPException
 from app.api.v1.endpoints.users import get_current_user
 from typing import Annotated
 from app.schemas.user import UserResponse
+from typing import Optional, Union
 import uuid
+from fastapi import UploadFile, File, Form
 
 router =APIRouter(
     prefix='/chat',
@@ -16,28 +18,38 @@ router =APIRouter(
 @router.post('/new')
 async def new_chat(
     db: db_session, 
-    chat: ChatRequest, 
-    user: Annotated[UserResponse, Depends(get_current_user)]
+    message: Annotated[str, Form()],
+    image: Annotated[Union[UploadFile, str, None], File()] = None,
+    user: Annotated[UserResponse, Depends(get_current_user)] = None
 ):
-    """Start a new chat conversation"""
+    """Start a new chat conversation with optional image"""
     try:
-        user_message = chat.message
         user_id = str(user.id)
         thread_id = str(uuid.uuid4())
 
-        logger.info(f"Starting new chat - User: {user_id}, Thread: {thread_id[:8]}..., Message length: {len(user_message)}")
+        logger.info(f"Starting new chat - User: {user_id}, Thread: {thread_id[:8]}..., Message length: {len(message)}")
 
         # Validate message content
-        if not user_message or not user_message.strip():
+        if not message or not message.strip():
             logger.warning(f"Empty message received from user {user_id}")
             raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+        # Process image if provided
+        image_data = None
+        # Check if image exists and is NOT a string (it should be an object with a filename)
+        if image and not isinstance(image, str) and hasattr(image, "filename"): 
+            from app.utils.image_processing import validate_image, process_image_to_base64
+            await validate_image(image)
+            image_data = await process_image_to_base64(image)
+            logger.info(f"Image processed for thread {thread_id[:8]}...")
 
         # Create chat using CRUD
         response = await create_chat(
             db=db, 
-            message=user_message, 
+            message=message, 
             thread_id=thread_id, 
-            user_id=user_id
+            user_id=user_id,
+            image_data=image_data
         )
 
         logger.info(f"New chat created successfully - User: {user_id}, Thread: {thread_id[:8]}...")
@@ -56,15 +68,15 @@ async def new_chat(
 async def continue_chat(
     db: db_session, 
     session_id: Annotated[str, Path(description="Thread ID for chat history")], 
-    chat: ChatRequest, 
-    user: Annotated[UserResponse, Depends(get_current_user)]
+    message: Annotated[str, Form()],
+    image: Annotated[Union[UploadFile, str, None], File()] = None,
+    user: Annotated[UserResponse, Depends(get_current_user)] = None
 ):
-    """Continue existing chat conversation"""
+    """Continue existing chat conversation with optional image"""
     try:
-        user_message = chat.message
-        user_id = str(user.id)  # Fixed: Convert to string for consistency
+        user_id = str(user.id)
 
-        logger.info(f"Continuing chat - User: {user_id}, Session: {session_id[:8]}..., Message length: {len(user_message)}")
+        logger.info(f"Continuing chat - User: {user_id}, Session: {session_id[:8]}..., Message length: {len(message)}")
 
         try:
             uuid.UUID(session_id)
@@ -73,16 +85,26 @@ async def continue_chat(
             raise HTTPException(status_code=400, detail="Invalid session_id format")
 
         # Validate message content
-        if not user_message or not user_message.strip():
+        if not message or not message.strip():
             logger.warning(f"Empty message received from user {user_id} for session {session_id[:8]}...")
             raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+        # Process image if provided
+        image_data = None
+        # Check if image exists and is NOT a string (it should be an object with a filename)
+        if image and not isinstance(image, str) and hasattr(image, "filename"): 
+            from app.utils.image_processing import validate_image, process_image_to_base64
+            await validate_image(image)
+            image_data = await process_image_to_base64(image)
+            logger.info(f"Image processed for thread {thread_id[:8]}...")
 
         # Continue chat using CRUD
         response = await create_chat(
             db=db, 
-            message=user_message, 
+            message=message, 
             thread_id=session_id, 
-            user_id=user_id
+            user_id=user_id,
+            image_data=image_data
         )
 
         logger.info(f"Chat continued successfully - User: {user_id}, Session: {session_id[:8]}...")
